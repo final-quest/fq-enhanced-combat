@@ -1,3 +1,7 @@
+Update 3.0.1:
+    Chore:
+        - Version bump: Foundry 14.369 and dnd5e 6.0.6 verified, two patch releases that needed no change on our side
+
 Update 3.0.0:
     Feat:
         - Turn timer on the turn of combatants owned by a player, passing the hand to the next combatant when it expires

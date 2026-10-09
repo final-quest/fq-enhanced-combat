@@ -2,7 +2,7 @@
   "id": "fq-enhanced-combat",
   "title": "FQ Enhanced Combat",
   "description": "Generic combat enhancements for the dnd5e system. Hosts the combat features of the FQ Card Engine that do not belong to the Final Quest card battle system, so they can be used without it.",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "license": "MIT",
   "languages": [
     {
@@ -46,7 +46,7 @@
   "download": "https://github.com/final-quest/fq-enhanced-combat/releases/latest/download/fq-enhanced-combat.zip",
   "compatibility": {
     "minimum": "14",
-    "verified": "14.368"
+    "verified": "14.369"
   },
   "relationships": {
     "systems": [
@@ -55,7 +55,7 @@
         "type": "system",
         "compatibility": {
           "minimum": "6.0.0",
-          "verified": "6.0.5",
+          "verified": "6.0.6",
           "maximum": "6.9.99"
         }
       }
