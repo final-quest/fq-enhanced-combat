@@ -1,5 +1,5 @@
 import {I18N, MODULE_ID} from "../core/constants.js";
-import {DEATH_SAVE_SETTING} from "../domain/death-save.js";
+import {DEATH_SAVE_SETTING, DELETE_NPC_TOKEN_SETTING} from "../domain/death-save.js";
 import TurnTimer, {TURN_TIMER_DURATION_SETTING, TURN_TIMER_SETTING} from "../domain/turn-timer.js";
 
 /**
@@ -20,6 +20,20 @@ export function registerSettings() {
         type: Boolean,
         // Désactivée par défaut : elle confie au module la mort des personnages et
         // la disparition des sbires, ce doit être un choix explicite du MJ.
+        default: false
+    });
+
+    // Affine le réglage précédent, dont il dépend : sans jets de sauvegarde, aucun
+    // PNJ ne quitte le combat et il n'y a pas de jeton à retirer.
+    game.settings.register(MODULE_ID, DELETE_NPC_TOKEN_SETTING, {
+        name: game.i18n.localize(`${I18N}.DeleteNpcTokenSetting`),
+        hint: game.i18n.localize(`${I18N}.DeleteNpcTokenSettingHint`),
+        scope: "world",
+        config: true,
+        type: Boolean,
+        // Désactivé par défaut : faire disparaître le corps d'un PNJ prive le MJ de
+        // sa mise en scène et de son butin, et c'est le comportement d'avant ce
+        // réglage — le jeton reste.
         default: false
     });
 

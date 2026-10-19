@@ -1,5 +1,5 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
-import DeathSave, {DEATH_SAVE_SETTING} from "../../src/domain/death-save.js";
+import DeathSave, {DEATH_SAVE_SETTING, DELETE_NPC_TOKEN_SETTING} from "../../src/domain/death-save.js";
 import {MODULE_ID} from "../../src/core/constants.js";
 
 /**
@@ -63,15 +63,25 @@ function makeCombat(actor) {
 }
 
 /**
- * Active (ou non) la fonctionnalité dans les réglages du monde.
+ * Active (ou non) la fonctionnalité dans les réglages du monde, et règle le sort
+ * du jeton des PNJ.
  *
- * @param {boolean} enabled - L'état du réglage.
+ * @param {boolean} enabled                     - L'état du réglage des jets de mort.
+ * @param {object}  [options]                   - Les réglages qui affinent celui-ci.
+ * @param {boolean} [options.deleteNpcToken]    - Retire de la scène le jeton des PNJ.
  *
  * @returns {void}
  */
-function setEnabled(enabled) {
-    game.settings.get = vi.fn((namespace, key) =>
-        (namespace === MODULE_ID && key === DEATH_SAVE_SETTING ? enabled : undefined));
+function setEnabled(enabled, {deleteNpcToken = false} = {}) {
+    game.settings.get = vi.fn((namespace, key) => {
+        if (namespace !== MODULE_ID) {
+            return undefined;
+        }
+        if (key === DEATH_SAVE_SETTING) {
+            return enabled;
+        }
+        return key === DELETE_NPC_TOKEN_SETTING ? deleteNpcToken : undefined;
+    });
 }
 
 beforeEach(() => {
@@ -110,6 +120,15 @@ describe("DeathSave — à qui la résolution s'applique", () => {
         });
 
         expect(DeathSave.isEnabled()).toBe(false);
+        expect(DeathSave.deletesNpcToken()).toBe(false);
+    });
+
+    it("ne retire le jeton des PNJ que si le MJ l'a demandé", () => {
+        expect(DeathSave.deletesNpcToken()).toBe(false);
+
+        setEnabled(true, {deleteNpcToken: true});
+
+        expect(DeathSave.deletesNpcToken()).toBe(true);
     });
 
     it("ne prend en charge le tour que d'un acteur à terre, réglage activé", () => {
@@ -157,13 +176,38 @@ describe("DeathSave.resolveTurnStart — qui lance, qui se dissipe, qui quitte",
     });
 
     it("sort un PNJ du combat sans jet, mais LAISSE son jeton sur la scène", async () => {
-        // Ce que devient le corps d'un PNJ appartient au MJ : butin, mise en scène,
-        // retrait. Le module ne décide pas à sa place.
+        // Réglage par défaut : ce que devient le corps d'un PNJ appartient au MJ —
+        // butin, mise en scène, retrait. Le module ne décide pas à sa place.
         const actor = makeActor({hp: 0, type: "npc"});
         const combat = makeCombat(actor);
 
         expect(await DeathSave.resolveTurnStart(combat)).toBe(true);
         expect(actor.rollDeathSave).not.toHaveBeenCalled();
+        await vi.waitFor(() => expect(combat.combatant.delete).toHaveBeenCalled());
+        expect(combat.token.delete).not.toHaveBeenCalled();
+    });
+
+    it("retire aussi le jeton du PNJ de la scène quand le MJ l'a demandé", async () => {
+        setEnabled(true, {deleteNpcToken: true});
+        const actor = makeActor({hp: 0, type: "npc"});
+        const combat = makeCombat(actor);
+
+        expect(await DeathSave.resolveTurnStart(combat)).toBe(true);
+        await vi.waitFor(() => expect(combat.token.delete).toHaveBeenCalled());
+        expect(combat.combatant.delete).toHaveBeenCalled();
+    });
+
+    it("laisse le corps d'un personnage joueur même réglage activé", async () => {
+        // Le réglage ne vise que les PNJ : le jeton d'un personnage appartient à son
+        // joueur, et un personnage à terre a encore ses jets de sauvegarde à lancer.
+        setEnabled(true, {deleteNpcToken: true});
+        const actor = makeActor({hp: 0, failure: 2});
+        actor.rollDeathSave = vi.fn(async () => {
+            actor.system.attributes.death.failure = 3;
+        });
+        const combat = makeCombat(actor);
+
+        expect(await DeathSave.resolveTurnStart(combat)).toBe(true);
         await vi.waitFor(() => expect(combat.combatant.delete).toHaveBeenCalled());
         expect(combat.token.delete).not.toHaveBeenCalled();
     });

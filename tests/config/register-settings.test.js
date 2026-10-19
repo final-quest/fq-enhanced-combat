@@ -1,7 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
 import {registerSettings} from "../../src/config/register-settings.js";
 import {I18N, MODULE_ID} from "../../src/core/constants.js";
-import {DEATH_SAVE_SETTING} from "../../src/domain/death-save.js";
+import {DEATH_SAVE_SETTING, DELETE_NPC_TOKEN_SETTING} from "../../src/domain/death-save.js";
 import TurnTimer, {TURN_TIMER_DURATION_SETTING, TURN_TIMER_SETTING} from "../../src/domain/turn-timer.js";
 
 /**
@@ -41,12 +41,14 @@ describe("registerSettings", () => {
         const keys = game.settings.register.mock.calls.map(([, key]) => key);
 
         expect(keys).toEqual(expect.arrayContaining([
-            "Debug", DEATH_SAVE_SETTING, "RollInitiative", TURN_TIMER_SETTING, TURN_TIMER_DURATION_SETTING]));
+            "Debug", DEATH_SAVE_SETTING, DELETE_NPC_TOKEN_SETTING, "RollInitiative",
+            TURN_TIMER_SETTING, TURN_TIMER_DURATION_SETTING]));
         expect(new Set(keys).size).toBe(keys.length);
     });
 
     it("localise le libellé et l'aide de chaque réglage", () => {
-        for (const suffix of ["Debug", "DeathSave", "RollInitiative", "TurnTimer", "TurnTimerDuration"]) {
+        for (const suffix of ["Debug", "DeathSave", "DeleteNpcToken", "RollInitiative",
+            "TurnTimer", "TurnTimerDuration"]) {
             expect(game.i18n.localize).toHaveBeenCalledWith(`${I18N}.${suffix}Setting`);
             expect(game.i18n.localize).toHaveBeenCalledWith(`${I18N}.${suffix}SettingHint`);
         }
@@ -62,6 +64,7 @@ describe("registerSettings", () => {
         // Un réglage `client` laisserait chaque joueur décider si les jets de mort
         // s'appliquent : la règle doit valoir pour la table entière.
         expect(optionsOf(DEATH_SAVE_SETTING).scope).toBe("world");
+        expect(optionsOf(DELETE_NPC_TOKEN_SETTING).scope).toBe("world");
         expect(optionsOf("RollInitiative").scope).toBe("world");
         expect(optionsOf(TURN_TIMER_SETTING).scope).toBe("world");
         expect(optionsOf(TURN_TIMER_DURATION_SETTING).scope).toBe("world");
@@ -70,6 +73,7 @@ describe("registerSettings", () => {
     it("laisse les automatismes de combat désactivés par défaut", () => {
         // Ils changent la façon de mener un combat : ce doit être un choix du MJ.
         expect(optionsOf(DEATH_SAVE_SETTING).default).toBe(false);
+        expect(optionsOf(DELETE_NPC_TOKEN_SETTING).default).toBe(false);
         expect(optionsOf("RollInitiative").default).toBe(false);
         expect(optionsOf(TURN_TIMER_SETTING).default).toBe(false);
     });

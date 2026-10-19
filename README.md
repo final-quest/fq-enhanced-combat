@@ -36,6 +36,7 @@ changes how a fight is run, so it has to be the GM's explicit choice.
 | Setting | Scope | Default | Effect |
 | --- | --- | --- | --- |
 | Death saving throws | world | off | A character at 0 hit points rolls their death save at the start of their turn; a minion vanishes, an NPC leaves the fight. |
+| Remove NPC tokens from the scene | world | off | An NPC leaving the fight at 0 hit points also has its token deleted. Player characters are never affected. Needs death saving throws. |
 | Roll Initiative | world | off | Rolls initiative for every combatant that still lacks it when one joins the fight. |
 | Turn timer | world | off | Counts down the turn of every combatant owned by a player and hands over to the next combatant when the time runs out. |
 | Turn duration (seconds) | world | 60 | How long a player's turn lasts. A new duration applies to the turn under way. |

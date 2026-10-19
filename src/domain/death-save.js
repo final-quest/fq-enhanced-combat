@@ -11,6 +11,36 @@ import {error} from "../core/utils/log.utils.js";
 export const DEATH_SAVE_SETTING = "DeathSaveOnTurnStart";
 
 /**
+ * Clé du réglage de monde qui fait disparaître de la scène le jeton d'un PNJ
+ * tombé à 0 point de vie, en plus de son retrait du combat.
+ *
+ * Réservé aux PNJ : un personnage joueur mort laisse toujours son corps, et un
+ * sbire emporte le sien dans tous les cas. Le réglage n'a donc d'effet que sur la
+ * branche intermédiaire, celle que le MJ pilote.
+ *
+ * @type {string}
+ */
+export const DELETE_NPC_TOKEN_SETTING = "DeleteNpcTokenOnDeath";
+
+/**
+ * Lit un réglage booléen du monde sans jamais lever. `game.settings.get` lève sur
+ * un réglage pas encore enregistré (monde en cours de chargement, suite de tests)
+ * et une règle de combat ne doit pas casser un tour pour autant : à défaut de
+ * réponse, elle est tenue pour désactivée.
+ *
+ * @param {string} key - La clé du réglage, sous le nom de ce module.
+ *
+ * @returns {boolean} True si le réglage vaut explicitement vrai.
+ */
+function worldFlag(key) {
+    try {
+        return game.settings.get(MODULE_ID, key) === true;
+    } catch {
+        return false;
+    }
+}
+
+/**
  * Début de tour d'un combattant à 0 point de vie.
  *
  * Un PERSONNAGE lance son jet de sauvegarde contre la mort — celui du système
@@ -19,9 +49,10 @@ export const DEATH_SAVE_SETTING = "DeathSaveOnTurnStart";
  * règle du système le laisserait stabilisé à 0), trois échecs le tuent et le
  * retirent du combat, un jet non concluant lui fait passer son tour.
  *
- * Un SBIRE et un PNJ ordinaire ne lancent rien : leur tour ne revient pas. Seul
- * le sbire se dissipe vraiment — son jeton part avec lui, là où le PNJ et le
- * personnage mort laissent un corps sur la scène.
+ * Un SBIRE et un PNJ ordinaire ne lancent rien : leur tour ne revient pas. Le
+ * sbire se dissipe toujours, jeton compris ; le PNJ quitte le combat et ne laisse
+ * son corps sur la scène que si {@link DELETE_NPC_TOKEN_SETTING} est désactivé ;
+ * le personnage mort laisse le sien en toutes circonstances.
  *
  * Tout se joue sur le client du premier MJ actif, seul appelant de
  * `resolveTurnStart` (voir `hook/combat.hook.js`) : le jet, les mises à jour
@@ -66,11 +97,17 @@ export default class DeathSave {
      * @returns {boolean} True si la fonctionnalité est activée.
      */
     static isEnabled() {
-        try {
-            return game.settings.get(MODULE_ID, DEATH_SAVE_SETTING) === true;
-        } catch {
-            return false;
-        }
+        return worldFlag(DEATH_SAVE_SETTING);
+    }
+
+    /**
+     * Indique si le jeton d'un PNJ à terre doit disparaître de la scène avec lui.
+     * Réglage désactivé : son corps reste, et ce qu'il devient appartient au MJ.
+     *
+     * @returns {boolean} True si le jeton du PNJ doit être supprimé.
+     */
+    static deletesNpcToken() {
+        return worldFlag(DELETE_NPC_TOKEN_SETTING);
     }
 
     /**
@@ -132,11 +169,13 @@ export default class DeathSave {
                 messageKey: `${I18N}.MinionVanished`, deleteToken: true});
         }
         // Un PNJ ordinaire ne lance pas de jet de sauvegarde — le système ne lui en
-        // tient pas le compte — et quitte simplement le combat. Son jeton reste : ce
-        // qu'il devient sur la scène (corps, butin, retrait) appartient au MJ.
+        // tient pas le compte — et quitte simplement le combat. Ce qu'il devient sur
+        // la scène (corps, butin, retrait) appartient au MJ : c'est son réglage, et
+        // non le type de l'acteur, qui décide du sort du jeton.
         if (actor.type !== "character") {
             return DeathSave.dismiss(combat, combatant, actor, {
-                messageKey: `${I18N}.NpcOutOfCombat`});
+                messageKey: `${I18N}.NpcOutOfCombat`,
+                deleteToken: DeathSave.deletesNpcToken()});
         }
         return DeathSave.resolveDeathSave(combat, combatant, actor);
     }
@@ -204,7 +243,8 @@ export default class DeathSave {
     /**
      * Fait mourir le personnage : statut « mort » posé sur son jeton, message de
      * chat, puis retrait du combat. Le jeton reste sur la scène — c'est un corps,
-     * pas une invocation qui se dissipe.
+     * pas une invocation qui se dissipe. Aucun réglage ne le retire : le jeton d'un
+     * personnage joueur appartient à son joueur, pas aux automatismes du combat.
      *
      * @param {Combat}    combat    - Le combat en cours.
      * @param {Combatant} combatant - Le combattant à retirer.
@@ -222,7 +262,8 @@ export default class DeathSave {
 
     /**
      * Retire du combat un combattant tombé à 0 point de vie sans jet de sauvegarde
-     * — un sbire ou un PNJ ordinaire. Seul le sbire emporte son jeton.
+     * — un sbire ou un PNJ ordinaire. Le sbire emporte toujours son jeton, celui du
+     * PNJ ne part que si le MJ l'a demandé : l'appelant tranche, pas cette méthode.
      *
      * @param {Combat}    combat                - Le combat en cours.
      * @param {Combatant} combatant             - Le combattant à retirer.

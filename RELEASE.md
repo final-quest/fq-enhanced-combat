@@ -1,4 +1,6 @@
 Update 3.0.1:
+    Feat:
+        - "Remove NPC tokens from the scene" setting: an NPC leaving the fight at 0 hit points also has its token deleted, where a dead player character always leaves a body and a minion always takes its own away
     Chore:
         - Version bump: Foundry 14.369 and dnd5e 6.0.6 verified, two patch releases that needed no change on our side
 
