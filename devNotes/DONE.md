@@ -1,3 +1,15 @@
+v3.0.1:
+Feat :
+- Un combattant mis à 0 point de vie par des dégâts est résolu sur-le-champ, sans attendre son tour : un PNJ ou un sbire quitte le combat, et un personnage qui jouait son tour le voit s'achever
+- Les jets de sauvegarde contre la mort d'un personnage restent où la règle les met, au début de chacun de ses tours
+- La main n'est passée qu'une fois par tour, quelle que soit celle des deux résolutions qui y arrive la première
+- Réglage « Retirer de la scène le jeton des PNJ » : un PNJ qui quitte le combat à 0 point de vie voit aussi son jeton supprimé, là où un personnage joueur mort laisse toujours son corps et un sbire emporte toujours le sien
+- Le réglage est désactivé par défaut et sans effet si les jets de sauvegarde contre la mort le sont : faire disparaître le corps d'un PNJ prive le MJ de sa mise en scène et de son butin
+
+Chore :
+- Support de la version Foundry 14.369 et DND5E 6.0.6
+- La chute sous les dégâts passe par dnd5e.damageActor, seul point commun à toutes les sources de dégâts : l'application du système comme la mise à jour directe dont se servent les cartes de fq-card-engine
+
 v3.0.0:
 Feat :
 - Timer de tour sur les tours des combattants appartenant à un joueur : à l'expiration, la main passe au combattant suivant
