@@ -1,5 +1,7 @@
 Update 3.0.1:
     Feat:
+        - A combatant brought to 0 hit points by damage is now resolved on the spot, without waiting for a turn: an NPC or a minion leaves the fight (and the scene, by the same token rules as before), and a character who was playing their turn sees it end
+        - A character's death saving throws stay where the rules put them, at the start of each of their turns; the hand is passed only once per turn, whichever of the two resolutions gets there first
         - "Remove NPC tokens from the scene" setting: an NPC leaving the fight at 0 hit points also has its token deleted, where a dead player character always leaves a body and a minion always takes its own away
     Chore:
         - Version bump: Foundry 14.369 and dnd5e 6.0.6 verified, two patch releases that needed no change on our side

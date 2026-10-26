@@ -9,10 +9,18 @@ import {MODULE_ID} from "../../src/core/constants.js";
  * quitte le combat, et ce que devient un personnage selon ses compteurs. Le jet
  * lui-même appartient à dnd5e — on vérifie qu'il est demandé, pas ce qu'il rend.
  *
- * `DeathSave.wait` est neutralisée dans chaque test : `endTurnLater` diffère le
+ * `DeathSave.wait` est neutralisée dans chaque test : `resolveLater` diffère le
  * passage de main de deux secondes, que personne n'a envie d'attendre. Elle est
  * isolée dans le code précisément pour cela.
  */
+
+/**
+ * Compteurs qui donnent une identité propre à chaque acteur et à chaque combat
+ * simulés : la règle départage les acteurs par leur `uuid`, et la main passée se
+ * retient par combat, round et tour.
+ */
+let actors = 0;
+let combats = 0;
 
 /**
  * Un acteur à 0 point de vie, tel que le hook le trouve.
@@ -28,9 +36,10 @@ import {MODULE_ID} from "../../src/core/constants.js";
  * @returns {object} L'acteur simulé.
  */
 function makeActor({hp = 0, type = "character", success = 0, failure = 0,
-    minion = false, rolls = true} = {}) {
+    minion = false, rolls = true, uuid = `Actor.${++actors}`} = {}) {
     const actor = {
         id: "actor1",
+        uuid,
         name: "Ilda",
         type,
         system: {attributes: {hp: {value: hp}, death: {success, failure}}},
@@ -52,6 +61,9 @@ function makeActor({hp = 0, type = "character", success = 0, failure = 0,
 /**
  * Un combat dont c'est le tour de cet acteur.
  *
+ * Chaque combat simulé porte une identité propre : la marque du tour dont la main
+ * a été passée vaut pour un combat, un round et un tour donnés.
+ *
  * @param {object} actor - L'acteur du combattant courant.
  *
  * @returns {object} Le combat simulé, avec son combattant et son jeton.
@@ -59,7 +71,32 @@ function makeActor({hp = 0, type = "character", success = 0, failure = 0,
 function makeCombat(actor) {
     const token = {delete: vi.fn(async () => undefined)};
     const combatant = {actor, token, delete: vi.fn(async () => undefined)};
-    return {combatant, token, nextTurn: vi.fn(async () => undefined)};
+    return {
+        id: `combat${++combats}`,
+        round: 1,
+        turn: 0,
+        combatant,
+        combatants: [combatant],
+        token,
+        nextTurn: vi.fn(async () => undefined)
+    };
+}
+
+/**
+ * Remplace le combattant courant du combat par celui d'un autre acteur, debout :
+ * le combattant à terre reste dans le combat, mais ce n'est plus son tour.
+ *
+ * @param {object} combat - Le combat simulé.
+ *
+ * @returns {object} Le combattant à terre, qui n'a plus la main.
+ */
+function giveTurnToSomeoneElse(combat) {
+    const downed = combat.combatant;
+    const other = {actor: makeActor({hp: 9, type: "npc"}), token: {delete: vi.fn()},
+        delete: vi.fn(async () => undefined)};
+    combat.combatant = other;
+    combat.combatants = [downed, other];
+    return downed;
 }
 
 /**
@@ -87,6 +124,8 @@ function setEnabled(enabled, {deleteNpcToken = false} = {}) {
 beforeEach(() => {
     vi.restoreAllMocks();
     vi.spyOn(DeathSave, "wait").mockResolvedValue(undefined);
+    // La marque du dernier tour rendu survivrait d'un test à l'autre.
+    DeathSave.handedOverTurn = null;
     setEnabled(true);
 });
 
@@ -297,5 +336,134 @@ describe("DeathSave — les conséquences du jet d'un personnage", () => {
         await vi.waitFor(() => expect(combat.nextTurn).toHaveBeenCalled());
         // Son tour passe, mais il reste dans le combat : le suivant reviendra.
         expect(combat.combatant.delete).not.toHaveBeenCalled();
+    });
+});
+
+describe("DeathSave.resolveDamage — la chute à 0 point de vie sous les dégâts", () => {
+
+    it("ne touche à rien quand le réglage est désactivé", () => {
+        setEnabled(false);
+        const actor = makeActor({hp: 0, type: "npc"});
+        const combat = makeCombat(actor);
+
+        expect(DeathSave.resolveDamage(actor, combat)).toBe(false);
+        expect(combat.combatant.delete).not.toHaveBeenCalled();
+    });
+
+    it("laisse en jeu le combattant que les dégâts n'ont pas mis à terre", () => {
+        const actor = makeActor({hp: 4, type: "npc"});
+        const combat = makeCombat(actor);
+
+        expect(DeathSave.resolveDamage(actor, combat)).toBe(false);
+        expect(combat.combatant.delete).not.toHaveBeenCalled();
+    });
+
+    it("sort le PNJ du combat sans attendre son tour, et LAISSE son jeton", async () => {
+        const actor = makeActor({hp: 0, type: "npc"});
+        const combat = makeCombat(actor);
+        const downed = giveTurnToSomeoneElse(combat);
+
+        expect(DeathSave.resolveDamage(actor, combat)).toBe(true);
+        await vi.waitFor(() => expect(downed.delete).toHaveBeenCalled());
+        expect(combat.token.delete).not.toHaveBeenCalled();
+        // Le tour est celui d'un autre combattant : il n'a pas à passer.
+        expect(combat.nextTurn).not.toHaveBeenCalled();
+    });
+
+    it("retire aussi le jeton du PNJ quand le MJ l'a demandé", async () => {
+        setEnabled(true, {deleteNpcToken: true});
+        const actor = makeActor({hp: 0, type: "npc"});
+        const combat = makeCombat(actor);
+        giveTurnToSomeoneElse(combat);
+
+        expect(DeathSave.resolveDamage(actor, combat)).toBe(true);
+        await vi.waitFor(() => expect(combat.token.delete).toHaveBeenCalled());
+    });
+
+    it("dissipe le sbire avec son jeton, que le réglage des PNJ soit mis ou non", async () => {
+        const actor = makeActor({hp: 0, type: "npc", minion: true});
+        const combat = makeCombat(actor);
+        giveTurnToSomeoneElse(combat);
+
+        expect(DeathSave.resolveDamage(actor, combat)).toBe(true);
+        await vi.waitFor(() => expect(combat.token.delete).toHaveBeenCalled());
+    });
+
+    it("passe la main avant de retirer le PNJ qui tombe pendant son propre tour", async () => {
+        // Le retrait du combattant courant décale l'ordre sans annonce de tour :
+        // la main doit passer d'abord.
+        const actor = makeActor({hp: 0, type: "npc"});
+        const combat = makeCombat(actor);
+
+        expect(DeathSave.resolveDamage(actor, combat)).toBe(true);
+        await vi.waitFor(() => expect(combat.nextTurn).toHaveBeenCalled());
+        expect(combat.combatant.delete).toHaveBeenCalled();
+    });
+
+    it("ne touche pas au PNJ qui ne figure pas dans le combat", () => {
+        const actor = makeActor({hp: 0, type: "npc"});
+        const combat = makeCombat(makeActor({hp: 10, type: "npc"}));
+
+        expect(DeathSave.resolveDamage(actor, combat)).toBe(false);
+        expect(combat.combatant.delete).not.toHaveBeenCalled();
+        expect(ChatMessage.create).not.toHaveBeenCalled();
+    });
+
+    it("reconnaît le combattant du PNJ par son uuid, et non par son identité", async () => {
+        // Deux jetons non liés copiés du même acteur de base portent des acteurs
+        // synthétiques distincts, qu'un identifiant d'acteur confondrait.
+        const actor = makeActor({hp: 0, type: "npc", uuid: "Scene.s1.Token.t1.Actor.a1"});
+        const combat = makeCombat(makeActor({hp: 0, type: "npc", uuid: "Scene.s1.Token.t1.Actor.a1"}));
+        giveTurnToSomeoneElse(combat);
+
+        expect(DeathSave.resolveDamage(actor, combat)).toBe(true);
+        await vi.waitFor(() => expect(combat.combatants[0].delete).toHaveBeenCalled());
+    });
+
+    it("achève le tour du personnage qui tombe à terre pendant son tour", async () => {
+        const actor = makeActor({hp: 0});
+        const combat = makeCombat(actor);
+
+        expect(DeathSave.resolveDamage(actor, combat)).toBe(true);
+        await vi.waitFor(() => expect(combat.nextTurn).toHaveBeenCalled());
+        // Il reste dans le combat, avec son corps : son jet de sauvegarde l'attend
+        // au début de son prochain tour.
+        expect(combat.combatant.delete).not.toHaveBeenCalled();
+        expect(combat.token.delete).not.toHaveBeenCalled();
+        expect(actor.rollDeathSave).not.toHaveBeenCalled();
+    });
+
+    it("laisse courir le tour quand le personnage tombe pendant celui d'un autre", () => {
+        const actor = makeActor({hp: 0});
+        const combat = makeCombat(actor);
+        giveTurnToSomeoneElse(combat);
+
+        expect(DeathSave.resolveDamage(actor, combat)).toBe(false);
+        expect(combat.nextTurn).not.toHaveBeenCalled();
+    });
+
+    it("ne passe la main qu'une fois pour un même tour", async () => {
+        // Deux sources de dégâts coup sur coup : sans cette garde, le combattant
+        // suivant verrait son tour sauté lui aussi.
+        const actor = makeActor({hp: 0});
+        const combat = makeCombat(actor);
+
+        expect(DeathSave.resolveDamage(actor, combat)).toBe(true);
+        expect(DeathSave.resolveDamage(actor, combat)).toBe(false);
+        await vi.waitFor(() => expect(combat.nextTurn).toHaveBeenCalledTimes(1));
+    });
+
+    it("ne repasse pas la main que le début de tour vient de rendre", async () => {
+        // Un poison appliqué au début du tour d'un personnage déjà à terre : son
+        // jet de sauvegarde a rendu le tour, les dégâts ne le rendent pas deux fois.
+        const actor = makeActor({hp: 0, failure: 1});
+        actor.rollDeathSave = vi.fn(async () => {
+            actor.system.attributes.death.failure = 2;
+        });
+        const combat = makeCombat(actor);
+
+        expect(await DeathSave.resolveTurnStart(combat)).toBe(true);
+        expect(DeathSave.resolveDamage(actor, combat)).toBe(false);
+        await vi.waitFor(() => expect(combat.nextTurn).toHaveBeenCalledTimes(1));
     });
 });

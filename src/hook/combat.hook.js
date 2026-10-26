@@ -42,6 +42,31 @@ Hooks.on("combatTurnChange", async function (combat, _prior, _current) {
 });
 
 /**
+ * Chute à 0 point de vie sous les dégâts, sans attendre que le tour du combattant
+ * revienne : un PNJ quitte le combat (et la scène si le MJ l'a demandé), un
+ * personnage voit s'achever le tour qu'il jouait. Voir `domain/death-save.js`.
+ *
+ * `dnd5e.damageActor` est le seul point de passage commun à toutes les sources de
+ * dégâts : le système l'appelle sur toute baisse de points de vie, qu'elle vienne
+ * de sa propre application des dégâts ou d'une mise à jour directe de l'acteur —
+ * celle dont se servent les cartes de fq-card-engine. Et seulement sur une baisse
+ * réelle, ce qui dispense de comparer les points de vie d'avant et d'après.
+ *
+ * Le réglage est lu avant le garde du MJ, et non avec lui : sans cela, un monde
+ * qui n'a pas activé la fonctionnalité verrait l'avertissement « aucun MJ
+ * connecté » à chaque coup porté.
+ */
+Hooks.on("dnd5e.damageActor", function (actor, _changes, _update, _userId) {
+    if (!DeathSave.isEnabled() || !DeathSave.isDown(actor)) {
+        return;
+    }
+    if (!isLocalUserFirstActiveGM()) {
+        return;
+    }
+    DeathSave.resolveDamage(actor);
+});
+
+/**
  * Compte à rebours du tour remis à zéro à chaque changement de tour : une échéance
  * pour le tour d'un joueur, rien pour celui d'une créature du MJ.
  *

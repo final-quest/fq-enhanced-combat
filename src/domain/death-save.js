@@ -41,13 +41,19 @@ function worldFlag(key) {
 }
 
 /**
- * Début de tour d'un combattant à 0 point de vie.
+ * Ce que devient un combattant à 0 point de vie, aux deux moments où la question
+ * se pose : quand des dégâts le mettent à terre, et au début de son tour.
  *
- * Un PERSONNAGE lance son jet de sauvegarde contre la mort — celui du système
- * dnd5e, avec ses bonus et sa carte de chat — puis le moteur en tire les
- * conséquences maison : trois réussites le remettent à 1 point de vie (là où la
- * règle du système le laisserait stabilisé à 0), trois échecs le tuent et le
- * retirent du combat, un jet non concluant lui fait passer son tour.
+ * SOUS LES DÉGÂTS, un PNJ — sbire compris — quitte le combat sur-le-champ, sans
+ * attendre un tour qui ne lui reviendrait que pour l'en sortir, et le personnage
+ * qui tombe pendant son propre tour le voit s'achever là. Rien d'autre : ses jets
+ * de sauvegarde appartiennent au début de ses tours.
+ *
+ * AU DÉBUT DU TOUR, un PERSONNAGE lance son jet de sauvegarde contre la mort —
+ * celui du système dnd5e, avec ses bonus et sa carte de chat — puis le moteur en
+ * tire les conséquences maison : trois réussites le remettent à 1 point de vie
+ * (là où la règle du système le laisserait stabilisé à 0), trois échecs le tuent
+ * et le retirent du combat, un jet non concluant lui fait passer son tour.
  *
  * Un SBIRE et un PNJ ordinaire ne lancent rien : leur tour ne revient pas. Le
  * sbire se dissipe toujours, jeton compris ; le PNJ quitte le combat et ne laisse
@@ -55,8 +61,9 @@ function worldFlag(key) {
  * le personnage mort laisse le sien en toutes circonstances.
  *
  * Tout se joue sur le client du premier MJ actif, seul appelant de
- * `resolveTurnStart` (voir `hook/combat.hook.js`) : le jet, les mises à jour
- * d'acteur et les suppressions de documents n'ont lieu qu'une fois.
+ * `resolveTurnStart` et de `resolveDamage` (voir `hook/combat.hook.js`) : le jet,
+ * les mises à jour d'acteur et les suppressions de documents n'ont lieu qu'une
+ * fois.
  * Toutes les méthodes sont statiques : la classe sert de namespace.
  */
 export default class DeathSave {
@@ -88,6 +95,19 @@ export default class DeathSave {
      * @type {string}
      */
     static MINION_FLAG_SCOPE = "fq-card-engine";
+
+    /**
+     * Le tour dont la main a déjà été passée, sous la forme `combat:round:tour`.
+     *
+     * Deux résolutions peuvent vouloir passer la main au même tour : le début de
+     * tour d'un personnage à terre, et les dégâts qui le mettent à terre dans ce
+     * même tour — un poison appliqué au début de son tour, ou deux sources de
+     * dégâts coup sur coup. Sans cette marque, le combattant suivant verrait son
+     * tour sauté lui aussi.
+     *
+     * @type {string|null}
+     */
+    static handedOverTurn = null;
 
     /**
      * Indique si la résolution automatique du début de tour à 0 point de vie est
@@ -147,6 +167,73 @@ export default class DeathSave {
      */
     static isMinion(actor) {
         return Boolean(actor?.flags?.[DeathSave.MINION_FLAG_SCOPE]?.summonerId);
+    }
+
+    /**
+     * Résout la chute à 0 point de vie de l'acteur qui vient d'encaisser des
+     * dégâts, sans attendre que son tour revienne.
+     *
+     * Un PNJ, sbire compris, quitte le combat tout de suite : son jeton part selon
+     * la règle du début de tour. Un PERSONNAGE garde ses jets de sauvegarde — ils
+     * appartiennent au début de ses tours — mais perd celui qu'il jouait : tomber à
+     * terre interrompt son tour, et seulement le sien.
+     *
+     * @param {Actor}  actor    - L'acteur qui vient d'encaisser les dégâts.
+     * @param {Combat} [combat] - Le combat en cours.
+     *
+     * @returns {boolean} True si la chute a été prise en charge.
+     */
+    static resolveDamage(actor, combat = game.combat) {
+        if (!DeathSave.isEnabled() || !DeathSave.isDown(actor)) {
+            return false;
+        }
+        return actor.type === "character"
+            ? DeathSave.passDownedTurn(combat, actor)
+            : DeathSave.withdraw(combat, actor);
+    }
+
+    /**
+     * Achève le tour du personnage que les dégâts viennent de mettre à terre — à
+     * la condition que ce soit le sien. À terre pendant le tour d'un autre, il
+     * attend le début du suivant, et son jet de sauvegarde avec.
+     *
+     * @param {Combat} combat - Le combat en cours.
+     * @param {Actor}  actor  - Le personnage tombé à 0 point de vie.
+     *
+     * @returns {boolean} True si son tour a été rendu.
+     */
+    static passDownedTurn(combat, actor) {
+        if (!DeathSave.isCurrentTurnOf(combat, actor) || !DeathSave.canPassTurn(combat)) {
+            return false;
+        }
+        DeathSave.announce(`${I18N}.DownedTurnEnded`, actor, createInfo);
+        DeathSave.resolveLater(combat);
+        return true;
+    }
+
+    /**
+     * Sort du combat le PNJ ou le sbire que les dégâts viennent de mettre à terre.
+     *
+     * Hors du combat, rien : ce module ne règle que le sort des combattants, et le
+     * jeton d'un PNJ qui n'y figure pas appartient au MJ comme avant.
+     *
+     * @param {Combat} combat - Le combat en cours.
+     * @param {Actor}  actor  - Le PNJ tombé à 0 point de vie.
+     *
+     * @returns {boolean} True s'il a été retiré du combat.
+     */
+    static withdraw(combat, actor) {
+        const combatant = DeathSave.combatantOf(combat, actor);
+        if (!combatant) {
+            return false;
+        }
+        const minion = DeathSave.isMinion(actor);
+        return DeathSave.dismiss(combat, combatant, actor, {
+            messageKey: minion ? `${I18N}.MinionVanished` : `${I18N}.NpcOutOfCombat`,
+            deleteToken: minion || DeathSave.deletesNpcToken(),
+            // La main ne passe que si c'est bien le PNJ qui tombe qui tenait le
+            // tour : autrement, le tour en cours n'est pas le sien et continue.
+            passTurn: DeathSave.isCurrentTurnOf(combat, actor)});
     }
 
     /**
@@ -218,7 +305,7 @@ export default class DeathSave {
             return false;
         }
         DeathSave.announce(`${I18N}.DeathSaveTurnPassed`, actor, createInfo);
-        DeathSave.endTurnLater(combat);
+        DeathSave.resolveLater(combat);
         return true;
     }
 
@@ -257,7 +344,7 @@ export default class DeathSave {
         if (typeof actor.toggleStatusEffect === "function") {
             await actor.toggleStatusEffect("dead", {active: true, overlay: true});
         }
-        DeathSave.endTurnLater(combat, {combatant});
+        DeathSave.resolveLater(combat, {combatant});
     }
 
     /**
@@ -270,19 +357,21 @@ export default class DeathSave {
      * @param {Actor}     actor                 - L'acteur qui quitte le combat.
      * @param {object}    options               - Les options du retrait.
      * @param {string}    options.messageKey    - La clé i18n du message de chat.
-     * @param {boolean}   [options.deleteToken]  - Supprime aussi le jeton de la scène.
+     * @param {boolean}   [options.deleteToken] - Supprime aussi le jeton de la scène.
+     * @param {boolean}   [options.passTurn]    - Passe la main au combattant suivant.
      *
      * @returns {boolean} Toujours true : le tour est consommé.
      */
-    static dismiss(combat, combatant, actor, {messageKey, deleteToken = false} = {}) {
+    static dismiss(combat, combatant, actor, {messageKey, deleteToken = false, passTurn = true} = {}) {
         DeathSave.announce(messageKey, actor, createInfo);
-        DeathSave.endTurnLater(combat, {combatant, deleteToken});
+        DeathSave.resolveLater(combat, {combatant, deleteToken, passTurn});
         return true;
     }
 
     /**
-     * Passe la main au combattant suivant après le temps de lecture, puis retire
-     * du combat le combattant à terre (et son jeton, pour un sbire).
+     * Règle l'issue d'une chute à 0 point de vie après le temps de lecture : la
+     * main passée au combattant suivant, le retrait du combattant à terre, et la
+     * suppression de son jeton.
      *
      * L'ordre n'est pas négociable : le tour passe AVANT le retrait. Supprimer le
      * combattant courant décale l'index de tour sans que Foundry n'annonce de
@@ -297,18 +386,94 @@ export default class DeathSave {
      * @param {object}    [options]             - Options de retrait.
      * @param {Combatant} [options.combatant]   - Le combattant à retirer du combat.
      * @param {boolean}   [options.deleteToken] - Supprime aussi le jeton de la scène.
+     * @param {boolean}   [options.passTurn]    - Passe la main au combattant suivant.
      *
      * @returns {void}
      */
-    static endTurnLater(combat, {combatant = null, deleteToken = false} = {}) {
+    static resolveLater(combat, {combatant = null, deleteToken = false, passTurn = true} = {}) {
         // Le jeton est saisi maintenant : le combattant supprimé ne le désignera plus.
         const token = deleteToken ? combatant?.token : null;
+        const handOver = passTurn && DeathSave.canPassTurn(combat);
+        if (handOver) {
+            DeathSave.handedOverTurn = DeathSave.turnKey(combat);
+        }
         (async () => {
             await DeathSave.wait(DeathSave.PASS_TURN_DELAY);
-            await combat?.nextTurn?.();
+            if (handOver) {
+                await combat?.nextTurn?.();
+            }
             await combatant?.delete?.();
             await token?.delete?.();
         })().catch(e => error("Fin du tour d'un combattant à terre", e));
+    }
+
+    /**
+     * Le combattant de cet acteur dans ce combat, s'il y figure.
+     *
+     * @param {Combat} [combat] - Le combat en cours.
+     * @param {Actor}  [actor]  - L'acteur cherché.
+     *
+     * @returns {Combatant|null} Son combattant, ou null.
+     */
+    static combatantOf(combat, actor) {
+        const combatants = combat?.combatants ?? [];
+        return [...combatants].find(combatant => DeathSave.sameActor(combatant, actor)) ?? null;
+    }
+
+    /**
+     * Le tour en cours est-il celui de cet acteur ?
+     *
+     * @param {Combat} [combat] - Le combat en cours.
+     * @param {Actor}  [actor]  - L'acteur inspecté.
+     *
+     * @returns {boolean} True si c'est son tour.
+     */
+    static isCurrentTurnOf(combat, actor) {
+        return DeathSave.sameActor(combat?.combatant, actor);
+    }
+
+    /**
+     * Ce combattant porte-t-il cet acteur ?
+     *
+     * Les `uuid` départagent ce que les identifiants d'acteur confondraient : deux
+     * jetons non liés copiés du même acteur de base portent des acteurs
+     * synthétiques distincts, et le même `id`.
+     *
+     * @param {Combatant} [combatant] - Le combattant inspecté.
+     * @param {Actor}     [actor]     - L'acteur cherché.
+     *
+     * @returns {boolean} True si le combattant est celui de cet acteur.
+     */
+    static sameActor(combatant, actor) {
+        if (!combatant?.actor || !actor) {
+            return false;
+        }
+        return combatant.actor === actor
+            || (Boolean(actor.uuid) && combatant.actor.uuid === actor.uuid);
+    }
+
+    /**
+     * La main de ce tour est-elle encore à passer ?
+     *
+     * @param {Combat} [combat] - Le combat en cours.
+     *
+     * @returns {boolean} True si aucune résolution ne l'a déjà passée.
+     */
+    static canPassTurn(combat) {
+        const key = DeathSave.turnKey(combat);
+        return key !== null && key !== DeathSave.handedOverTurn;
+    }
+
+    /**
+     * L'identité du tour en cours, pour reconnaître celui dont la main a déjà été
+     * passée.
+     *
+     * @param {Combat} [combat] - Le combat en cours.
+     *
+     * @returns {string|null} La clé du tour, ou null faute de combat.
+     */
+    static turnKey(combat) {
+        return combat ? `${combat.id}:${combat.round}:${combat.turn}` : null;
     }
 
     /**
