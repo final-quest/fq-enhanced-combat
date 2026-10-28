@@ -1,7 +1,7 @@
 import DeathSave from "../domain/death-save.js";
+import Initiative from "../domain/initiative.js";
 import TurnTimer from "../domain/turn-timer.js";
 import {isLocalUserFirstActiveGM} from "../core/utils/gm.utils.js";
-import {MODULE_ID} from "../core/constants.js";
 
 /**
  * Les automatismes de combat du module.
@@ -103,15 +103,14 @@ Hooks.on("deleteCombat", function (_combat, _options, _userId) {
  * n'en ont pas encore.
  *
  * Branché sur `createCombatant` et non sur `createCombat` : les combattants sont
- * ajoutés un à un, souvent après la création du combat, et `rollAll` ne touche
- * que ceux dont l'initiative manque — l'appel répété est donc sans effet de bord.
+ * ajoutés un à un, souvent après la création du combat.
+ *
+ * Le handler ne fait que signaler l'arrivée : `Initiative` regroupe les
+ * créations d'un même geste en un seul jet et sérialise les passages. Voir
+ * `domain/initiative.js` pour la raison — un jet par création faisait parcourir
+ * tous les combattants autant de fois qu'il y avait de jetons, et ces parcours
+ * se chevauchaient jusqu'à jeter deux fois le dé du même combattant.
  */
-Hooks.on("createCombatant", async function (_combatant, _data, _options) {
-    if (!game.settings.get(MODULE_ID, "RollInitiative")) {
-        return;
-    }
-    if (!isLocalUserFirstActiveGM()) {
-        return;
-    }
-    await game.combat?.rollAll();
+Hooks.on("createCombatant", function (combatant, _data, _options) {
+    Initiative.onCombatantCreated(combatant);
 });

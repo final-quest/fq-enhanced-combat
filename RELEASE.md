@@ -1,3 +1,10 @@
+Update 3.0.2:
+    Fix:
+        - Automatic initiative no longer rolls once per combatant: adding a whole group of tokens to the encounter in one go now triggers a single roll pass, which serves every combatant that still needs an initiative
+        - No more dice thrown twice for the same combatant: roll passes are serialised, so two overlapping passes can no longer roll the same initiative, and a combatant that joins while the dice are rolling is picked up by the pass in progress
+        - The initiative is rolled in the combat the combatant actually joined, instead of the scene's active encounter
+        - The "no GM connected" warning is said once per batch instead of once per token
+
 Update 3.0.1:
     Feat:
         - A combatant brought to 0 hit points by damage is now resolved on the spot, without waiting for a turn: an NPC or a minion leaves the fight (and the scene, by the same token rules as before), and a character who was playing their turn sees it end

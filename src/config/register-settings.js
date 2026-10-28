@@ -1,5 +1,6 @@
 import {I18N, MODULE_ID} from "../core/constants.js";
 import {DEATH_SAVE_SETTING, DELETE_NPC_TOKEN_SETTING} from "../domain/death-save.js";
+import {ROLL_INITIATIVE_SETTING} from "../domain/initiative.js";
 import TurnTimer, {TURN_TIMER_DURATION_SETTING, TURN_TIMER_SETTING} from "../domain/turn-timer.js";
 
 /**
@@ -37,7 +38,7 @@ export function registerSettings() {
         default: false
     });
 
-    game.settings.register(MODULE_ID, "RollInitiative", {
+    game.settings.register(MODULE_ID, ROLL_INITIATIVE_SETTING, {
         name: game.i18n.localize(`${I18N}.RollInitiativeSetting`),
         hint: game.i18n.localize(`${I18N}.RollInitiativeSettingHint`),
         scope: "world",
